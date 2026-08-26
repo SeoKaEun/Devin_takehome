@@ -28,6 +28,7 @@ def _age_minutes(iso_ts):
 def tick(gh, devin, state, log=print):
     """One full pass: watch -> dispatch -> monitor -> gate -> report."""
     state["meta"]["ticks"] += 1
+    state["meta"]["last_tick_at"] = st.utcnow()
 
     _watch(gh, state, log)
 
@@ -38,6 +39,7 @@ def tick(gh, devin, state, log=print):
         except Exception as exc:  # one issue's failure never stalls the others
             log(f"[!] issue #{key}: tick error: {exc}")
             st.record(state, key, "tick_error", f"{exc}\n{traceback.format_exc()[:400]}")
+            state["meta"]["tick_errors"] = state["meta"].get("tick_errors", 0) + 1
 
     st.save(state)
 
