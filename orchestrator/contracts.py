@@ -32,6 +32,12 @@ WORK_SCHEMA = {
                            "partial = some criteria met, needs human decision",
         },
         "summary": {"type": "string", "description": "3-6 sentence engineering summary"},
+        "change_summary": {
+            "type": "array", "items": {"type": "string", "maxLength": 120},
+            "description": "3-6 standalone bullet facts, each under 100 chars, "
+                           "plain statements a dashboard can list verbatim: what "
+                           "changed, why, key numbers. NOT prose paragraphs.",
+        },
         "pr_url": {"type": ["string", "null"], "description": "URL of the opened PR, null if none"},
         "branch": {"type": ["string", "null"]},
         "files_changed": {"type": "array", "items": {"type": "string"}},
@@ -40,9 +46,11 @@ WORK_SCHEMA = {
             "description": "each entry: '<command> -> <result>'",
         },
         "blocking_reason": {"type": ["string", "null"],
-                            "description": "required when outcome=blocked: exact technical cause"},
+                            "description": "required when outcome=blocked: exact technical "
+                                           "cause, 1-2 short sentences, no paragraphs"},
         "mitigation": {"type": ["string", "null"],
-                       "description": "required when outcome=blocked: recommended interim mitigation"},
+                       "description": "required when outcome=blocked: recommended interim "
+                                      "mitigation, 1-2 short sentences"},
         "advisory_status": {"type": ["string", "null"],
                             "description": "for investigation tasks: current upstream fix status"},
     },
