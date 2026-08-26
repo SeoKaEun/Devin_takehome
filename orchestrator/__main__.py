@@ -68,17 +68,23 @@ def cmd_run():
         f"interval={interval}s, fork={config.FORK_FULL}, "
         f"scan every {config.SCAN_INTERVAL_MIN} min)")
     last_scan = 0.0
+    last_scan_result = None
     while True:
         # automated event source: periodic dependency scan files new issues,
         # which the very next tick picks up as events (live mode only)
         if (not is_simulation() and config.SCAN_INTERVAL_MIN > 0
                 and time.time() - last_scan >= config.SCAN_INTERVAL_MIN * 60):
             try:
-                scanner.scan_once(log=log)
+                scan_filed = scanner.scan_once(log=log)
             except Exception as exc:
+                scan_filed = None
                 log(f"[scan] error (non-fatal, retrying next cycle): {exc}")
             last_scan = time.time()
+            last_scan_result = (st.utcnow(), scan_filed)
         state = st.load()
+        if last_scan_result:
+            state["meta"]["last_scan_at"], state["meta"]["last_scan_filed"] = \
+                last_scan_result
         pipeline.tick(gh, devin, state, log=log)
         dashboard.write(state)
         if _all_terminal(state) and state["issues"]:
