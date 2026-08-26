@@ -1,0 +1,18 @@
+services:
+  orchestrator:
+    build: .
+    env_file: .env          # DEVIN_API_KEY, GITHUB_TOKEN, GITHUB_OWNER, ...
+    volumes:
+      - ./state:/app/state  # state.json + dashboard.html + logs, host-inspectable
+    restart: unless-stopped
+
+  # Reviewer mode: full pipeline demo with zero credentials.
+  #   docker compose run --rm simulate
+  simulate:
+    build: .
+    environment:
+      SIMULATE: "1"
+    volumes:
+      - ./state:/app/state
+    command: run
+    profiles: ["sim"]
