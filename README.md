@@ -87,17 +87,35 @@ pipeline stops for a human - it never changes *which* safety lines exist:
 Recommended adoption path: start `supervised`, move to `autopilot` as trust
 accumulates.
 
+**The criterion behind the safety lines.** A decision is automatable only when
+it is *machine-verifiable* (checkable against the pre-agreed contract: tests,
+scope, independent review) **and** *reversible* (bounded blast radius - a merged
+PR reverts; docs/tests cannot break production). Three kinds of decisions fail
+that test in principle, so they stay human in every mode: **risk acceptance**
+(living with an unfixable advisory is an accountability question, not a
+technical one - automation prepares the decision, a human signs it), **contract
+amendment** (out-of-contract source changes remove the very baseline the
+machine verifies against; only the contract's author may widen it), and
+**unexplained state** (timeouts, schema violations, contradictions - once the
+system cannot prove what is happening, acting automatically means acting on
+unknown state, so it stops loudly instead).
+
 ## What happened in the live run (all real, verifiable on the fork)
 
 | Issue | Outcome | Story |
 |---|---|---|
-| [#2 setuptools 80.9.0->83.0.0](https://github.com/SeoKaEun/devin_takehome_assignment/issues/2) | **fixed** ([PR #5](https://github.com/SeoKaEun/devin_takehome_assignment/pull/5)) | Work session opened a PR; the **independent review session rejected it**, catching a real latent break (nodeenv 1.8.0 imports `pkg_resources`, removed in setuptools >= 82 - reproduced, plus doc drift). Findings were routed back automatically; the author fixed them on the same PR; a second review approved. |
+| [#2 setuptools 80.9.0->83.0.0](https://github.com/SeoKaEun/devin_takehome_assignment/issues/2) | **fixed** ([PR #5](https://github.com/SeoKaEun/devin_takehome_assignment/pull/5)) | Work session opened a PR; the **independent review session rejected it**, catching a real latent break (nodeenv 1.8.0 imports `pkg_resources`, removed in setuptools >= 82 - reproduced, plus doc drift). Findings were routed back automatically; the author fixed them on the same PR; a second review approved. Gate 1 also flagged the widened diff twice; a human accepted the scope growth (that decision is now the `balanced` policy's auto-accept rule for docs/tests). |
 | [#3 paramiko PYSEC-2026-2858](https://github.com/SeoKaEun/devin_takehome_assignment/issues/3) | **escalated** | No fixed release exists, and the repo's own constraint (`paramiko <4.0`, sshtunnel still uses DSSKey) blocks the 4.x line. Devin filed an evidence-backed report - advisory status, blocking chain, exposure assessment, mitigation, revisit trigger - instead of forcing a breaking PR. |
-| [#1 flask 2.3.3->3.1.3](https://github.com/SeoKaEun/devin_takehome_assignment/issues/1) | _in progress at time of writing_ | Major-version upgrade with breaking-change fallout. |
-| [#4 react-loadable -> React.lazy](https://github.com/SeoKaEun/devin_takehome_assignment/issues/4) | _in progress at time of writing_ | Multi-file frontend refactor ([PR #8](https://github.com/SeoKaEun/devin_takehome_assignment/pull/8)), under independent review. |
+| [#1 flask 2.3.3->3.1.3](https://github.com/SeoKaEun/devin_takehome_assignment/issues/1) | **fixed** ([PR #9](https://github.com/SeoKaEun/devin_takehome_assignment/pull/9)) | Major-version upgrade. Devin found the one true breaking dependency (flask-babel 3.1.0 imports a helper Flask 3 removed, via the flask-appbuilder chain), bumped it to 4.0.0, and proved no app-code changes were needed: `pytest tests/unit_tests` identical to the master baseline (13,328 passed). The independent review rejected the first attempt, was routed back, then approved: "does exactly what issue #1 requires and nothing more - 3 files, +8/-5." |
+| [#4 react-loadable -> React.lazy](https://github.com/SeoKaEun/devin_takehome_assignment/issues/4) | **fixed** ([PR #8](https://github.com/SeoKaEun/devin_takehome_assignment/pull/8)) | Multi-file frontend refactor, review-approved on the first pass. |
 
-Human interventions across the entire run: **label toggles, one scope-policy
-decision, and the merge button.** No code was written or reviewed by a human.
+**Final tally** (all derived from pipeline records): 4/4 issues terminal -
+3 verified PRs + 1 evidence-backed escalation. 9 Devin sessions (4 work,
+5 review). 2 defective fixes caught by independent review before any human saw
+them. Average detection-to-resolution: ~50 min wall-clock. Human involvement:
+4 logged decisions (one timeout extension, scope-policy widenings, one
+calibration judgment) and the merge button - no code written or reviewed by a
+human.
 
 ## Why Devin (and not a rules bot)
 
