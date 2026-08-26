@@ -48,6 +48,12 @@ MAX_CONCURRENT_SESSIONS = int(os.environ.get("MAX_CONCURRENT_SESSIONS", "2"))
 REVIEW_MODE = os.environ.get("REVIEW_MODE", "all")
 # minutes between automatic dependency scans in `run` mode; 0 disables
 SCAN_INTERVAL_MIN = int(os.environ.get("SCAN_INTERVAL_MIN", "30"))
+# lockfiles the scanner watches (comma-separated, repo-relative)
+SCAN_MANIFESTS = [m.strip() for m in os.environ.get(
+    "SCAN_MANIFESTS", "requirements/base.txt").split(",") if m.strip()]
+# burst control: max new issues filed per scan pass; the rest wait for the
+# next cycle (a 20-CVE disclosure day must not open 20 sessions at once)
+SCAN_MAX_NEW = int(os.environ.get("SCAN_MAX_NEW", "3"))
 
 # --- autonomy mode ---------------------------------------------------------
 # Teams differ in risk appetite. One knob sets how much the pipeline decides
