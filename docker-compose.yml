@@ -1,7 +1,9 @@
 services:
   orchestrator:
     build: .
-    env_file: .env          # DEVIN_API_KEY, GITHUB_TOKEN, GITHUB_OWNER, ...
+    env_file:
+      - path: .env          # DEVIN_API_KEY, GITHUB_TOKEN, GITHUB_OWNER, ...
+        required: false     # absent .env must not break `compose run simulate`
     volumes:
       - ./state:/app/state  # state.json + dashboard.html + logs, host-inspectable
     restart: unless-stopped
