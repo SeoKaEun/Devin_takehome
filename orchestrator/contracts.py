@@ -56,6 +56,64 @@ WORK_SCHEMA = {
     },
 }
 
+AUDIT_SCHEMA = {
+    "type": "object",
+    "required": ["findings"],
+    "properties": {
+        "findings": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["title", "file", "evidence", "why_it_matters"],
+                "properties": {
+                    "title": {"type": "string", "maxLength": 90,
+                              "description": "short defect statement"},
+                    "file": {"type": "string",
+                             "description": "repo-relative path of the primary file"},
+                    "evidence": {"type": "string", "maxLength": 400,
+                                 "description": "the exact code pattern / lines proving it"},
+                    "why_it_matters": {"type": "string", "maxLength": 300},
+                    "suggested_fix": {"type": "string", "maxLength": 300},
+                    "category": {"type": "string",
+                                 "enum": ["deprecated-pattern", "bug-risk",
+                                          "error-handling", "performance"]},
+                },
+            },
+        },
+        "scope_covered": {"type": "string",
+                          "description": "what was actually examined"},
+    },
+}
+
+
+def build_audit_prompt(scope):
+    """Detection by judgment: Devin reads code and reports defects the
+    dependency scanner cannot see. Report-only - no fixes here."""
+    return f"""\
+You are auditing part of the repository {config.FORK_FULL} (a fork of
+apache/superset) for CODE-LEVEL problems that a dependency scanner cannot
+detect.
+
+Scope for this audit: {scope}
+
+Look for genuinely actionable defects only:
+- deprecated or unmaintained patterns/APIs still in use,
+- error handling that silently swallows failures,
+- bug risks (mutable default arguments, race-prone constructs, unsafe parsing),
+- clear performance traps.
+
+Rules:
+- Report at most 3 findings, ranked by value. Quality over quantity - a
+  finding must be worth an engineer's time to fix.
+- Every finding needs concrete evidence: the file and the exact pattern.
+  No speculation, no style nits, no formatting complaints.
+- Do NOT change any code, do NOT open PRs. This session is detection only.
+- If the scope contains nothing worth fixing, return an empty findings list.
+
+Fill the structured output completely.
+"""
+
+
 REVIEW_SCHEMA = {
     "type": "object",
     "required": ["verdict", "summary"],
