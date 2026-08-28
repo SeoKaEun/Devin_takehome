@@ -10,6 +10,7 @@ injected with one or the other and cannot tell the difference.
 """
 
 import itertools
+import os
 
 # Fixtures mirror the real seeded backlog (see scripts/seed_issues.py).
 FIXTURE_ISSUES = [
@@ -63,19 +64,31 @@ _WORK_SCRIPTS = {
     ],
 }
 
-_REVIEW_SCRIPT = [
+_REVIEW_APPROVE = [
     {"status_enum": "working"},
     {"status_enum": "finished", "structured_output": {
         "verdict": "approve", "summary": "(sim) diff matches contract, tests credible",
         "checks_performed": ["(sim) read diff", "(sim) reran type check"], "risks": []}},
 ]
 
+# Issue 1's FIRST review rejects (exercising the bounded rework loop);
+# the re-review after rework approves.
+_REVIEW_REJECT = [
+    {"status_enum": "working"},
+    {"status_enum": "finished", "structured_output": {
+        "verdict": "request_changes",
+        "summary": "(sim) fix is incomplete",
+        "checks_performed": ["(sim) read diff"],
+        "risks": ["(sim) development.txt still pins the vulnerable version"]}},
+]
+
 
 class SimDevin:
     def __init__(self):
         self._counter = itertools.count(1)
-        self._sessions = {}   # session_id -> {"script": [...], "cursor": int}
-        self.messages = []    # nudges sent, for assertion/inspection
+        self._sessions = {}       # session_id -> {"script": [...], "cursor": int}
+        self._review_round = {}   # issue_no -> how many review sessions so far
+        self.messages = []        # nudges/rework messages, for assertion
 
     def healthcheck(self):
         return True, "simulation mode (no network)"
@@ -84,9 +97,14 @@ class SimDevin:
                        max_acu_limit=None, idempotent=True):
         sid = f"sim-session-{next(self._counter)}"
         issue_no = next((int(t.split("-")[1]) for t in tags if t.startswith("issue-")), 0)
-        script = (_REVIEW_SCRIPT if "role-review" in tags
-                  else _WORK_SCRIPTS.get(issue_no, _WORK_SCRIPTS[2]))
-        self._sessions[sid] = {"script": script, "cursor": 0}
+        if "role-review" in tags:
+            rnd = self._review_round.get(issue_no, 0) + 1
+            self._review_round[issue_no] = rnd
+            script = (_REVIEW_REJECT if issue_no == 1 and rnd == 1
+                      else _REVIEW_APPROVE)
+        else:
+            script = _WORK_SCRIPTS.get(issue_no, _WORK_SCRIPTS[2])
+        self._sessions[sid] = {"script": list(script), "cursor": 0}
         return {"session_id": sid, "url": f"sim://session/{sid}", "is_new_session": True}
 
     def get_session(self, session_id):
@@ -97,6 +115,20 @@ class SimDevin:
 
     def send_message(self, session_id, message):
         self.messages.append((session_id, message))
+        if "independent review" in message.lower():
+            # rework request: the work session produces an UPDATED result,
+            # which un-stales its output at the gate
+            s = self._sessions.get(session_id)
+            if s:
+                prev = next((st_ for st_ in reversed(s["script"])
+                             if st_.get("structured_output")), None)
+                out = dict((prev or {}).get("structured_output") or {})
+                out["summary"] = "(sim) reworked per review findings"
+                out["files_changed"] = (out.get("files_changed") or []) + [
+                    "requirements/development.txt"]
+                s["script"].append({"status_enum": "finished",
+                                    "structured_output": out})
+                s["cursor"] = len(s["script"]) - 1
         return {}
 
 
@@ -111,11 +143,16 @@ class SimGithub:
 
     def comment_on_issue(self, number, body):
         self.comments.append((number, body))
-        print(f"[sim] comment on issue #{number}:\n{_indent(body)}")
+        if os.environ.get("SIMULATE") == "1":  # narrate in demo, silent in tests
+            print(f"[sim] comment on issue #{number}:\n{_indent(body)}")
         return {"html_url": f"sim://issues/{number}#comment"}
 
+    KNOWN_PRS = {"sim://pr/101", "sim://pr/102", "sim://pr/104"}
+
     def get_pull_request(self, pr_url):
-        if pr_url and pr_url.startswith("sim://pr/"):
+        # only PRs the scripted work sessions actually opened "exist";
+        # anything else is a false claim and must fail the gate, as live
+        if pr_url in self.KNOWN_PRS:
             return {"html_url": pr_url, "state": "open",
                     "base": {"repo": {"full_name": "sim/fork"}}}
         return None
