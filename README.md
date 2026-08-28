@@ -30,21 +30,30 @@ changes the marginal cost of a ticket from engineer-hours to a few ACUs.
 ## Architecture
 
 ```
- EVENT SOURCES                ORCHESTRATOR (deterministic)          LABOR (Devin)
- ┌──────────────┐             ┌───────────────────────────┐
- │ OSV scanner   │──auto──┐   │ 1 Watcher    poll issues   │
- │ (30-min cycle)│        ├──→│ 2 Dispatcher issue→session │──→ work session
- │ humans adding │──opt-in┘   │ 3 Monitor    track/nudge   │←──   (clone, fix,
- │ the label     │            │ 4 Gate 1     mechanical    │       test, PR)
- └──────────────┘             │              verification  │
-                              │ 5 Gate 2     independent   │──→ review session
-                              │              review        │←──   (judge diff vs
-                              │ 6 Reporter   comments+state│       contract)
-                              └───────────────────────────┘
-                                    │                │
-                              state.json         suspicion lane
-                              → dashboard        (never silent)
+ EVENT SOURCES                 ORCHESTRATOR (deterministic)          LABOR (Devin)
+ ┌───────────────┐             ┌───────────────────────────┐
+ │ OSV dep scan   │──auto──┐   │ 1 Watcher    poll issues   │
+ │ (30-min cycle) │        │   │ 2 Dispatcher issue→session │──→ work session
+ │ code audit     │──auto──┼──→│ 3 Monitor    track/nudge   │←──   (clone, fix,
+ │ (Devin session)│        │   │ 4 Gate 1     mechanical    │       test, PR)
+ │ humans adding  │──opt-in┘   │              verification  │
+ │ the label      │            │ 5 Gate 2     independent   │──→ review session
+ └───────────────┘             │              review        │←──   (judge diff vs
+                               │ 6 Reporter   comments+state│       contract)
+                               └───────────────────────────┘
+                                     │                │
+                               state.json         suspicion lane
+                               → dashboard        (never silent)
 ```
+
+Three event sources feed the same pipeline. The dependency scanner is
+deterministic (a database join against OSV - complete and auditable for the
+class of *known* advisories). The **code audit** covers the class a database
+cannot: code-level defects. Detection there is itself delegated to a Devin
+session (role: auditor, report-only, cost-capped) whose structured findings
+the orchestrator files as contract-shaped issues - judgment where judgment
+is required, deterministic filing after. Humans remain the third source:
+labeling any issue is delegation.
 
 Design rules, and why:
 
