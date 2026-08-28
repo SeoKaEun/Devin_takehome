@@ -20,9 +20,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 API = "https://api.github.com"
 
-INCLUDE = ["README.md", "Dockerfile", "docker-compose.yml", ".env.example",
-           ".gitignore"]
-INCLUDE_DIRS = ["orchestrator", "scripts"]
+INCLUDE = ["README.md", "LICENSE", "Dockerfile", "docker-compose.yml",
+           ".env.example", ".gitignore"]
+INCLUDE_DIRS = ["orchestrator", "scripts", "tests"]
 EXCLUDE_NAMES = {"__pycache__", ".env", "state"}
 
 
