@@ -212,6 +212,16 @@ def _gate1(gh, devin, state, key, entry, session_detail, log):
                           f"claimed PR does not exist: {pr_url}", log)
 
     files = [f["filename"] for f in gh.get_pull_request_files(pr_url)]
+
+    # hard denylist first: some paths (CI workflows) are off-limits in every
+    # mode - touching them is never a policy question, always a stop
+    denied = [f for f in files
+              if any(f.startswith(p) for p in contracts.DENIED_PATHS)]
+    if denied:
+        return _attention(gh, state, key, entry,
+                          f"PR touches protected path(s): {denied[:3]} - "
+                          "CI/workflow files are never in scope", log)
+
     off_scope = [f for f in files
                  if not any(f.startswith(p) for p in spec["allowed_paths"])]
     if off_scope:
