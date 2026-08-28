@@ -164,6 +164,22 @@ The Devin account needs its GitHub integration connected to the fork.
 python -m orchestrator healthcheck | scan | once | run | status | dashboard
 ```
 
+### Tests
+
+Stdlib `unittest`, no network, no credentials, sub-second:
+
+```bash
+python -m unittest discover -s tests
+```
+
+19 tests cover the contract layer (spec matching, closed outcome enums,
+prompt invariants), the scanner's parsing and templating, and - via the
+simulation clients - the full pipeline: all four terminal narratives, the
+bounded rework loop (review rejects -> findings routed back -> re-review
+approves), the idle-session nudge, the concurrency cap on every tick, and
+the suspicion-lane invariants (a `fixed` claim with no PR, a nonexistent PR,
+a `blocked` claim without evidence - each must stop the pipeline, loudly).
+
 ## Repository layout
 
 ```
@@ -180,7 +196,14 @@ orchestrator/
   sim.py           offline fixtures for the full pipeline
 scripts/
   seed_issues.py   Part-1 backlog seeding (idempotent, --dry-run)
+tests/             unittest suite (stdlib-only, offline, sub-second)
 ```
+
+Two hard guards worth knowing about: `.github/` is on a global denylist -
+no session may touch CI workflows in any autonomy mode (workflow edits are a
+privilege-escalation surface); and issues without a hand-written scope spec
+get a bounded default (manifests, source, docs, tests), never
+"anything goes".
 
 ## Production notes (what changes in a real engagement)
 
