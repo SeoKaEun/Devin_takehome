@@ -105,7 +105,18 @@ ISSUE_SPECS = [
     },
 ]
 
-DEFAULT_SPEC = {"match": None, "expect_pr": True, "allowed_paths": [""]}
+# Issues without a hand-written spec (e.g. scanner-filed ones) get a broad
+# but NOT unlimited scope: manifests, source, docs, tests. Never "everything".
+DEFAULT_SPEC = {
+    "match": None, "expect_pr": True,
+    "allowed_paths": ["requirements/", "pyproject.toml", "superset/",
+                      "superset-core/", "superset-frontend/", "docs/", "tests/"],
+}
+
+# Paths no session may ever touch, in any spec, in any autonomy mode.
+# CI workflows are a privilege-escalation surface: an agent that can edit
+# .github/workflows can exfiltrate secrets or self-approve.
+DENIED_PATHS = [".github/"]
 
 
 def spec_for(issue_title):
