@@ -5,6 +5,7 @@ FROM python:3.12-slim
 WORKDIR /app
 COPY orchestrator/ orchestrator/
 COPY scripts/ scripts/
+COPY tests/ tests/
 
 # State (state.json, dashboard.html, logs) lives on a mounted volume so it
 # survives container restarts and is inspectable from the host.
