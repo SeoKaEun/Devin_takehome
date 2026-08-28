@@ -55,6 +55,11 @@ SCAN_MANIFESTS = [m.strip() for m in os.environ.get(
 # next cycle (a 20-CVE disclosure day must not open 20 sessions at once)
 SCAN_MAX_NEW = int(os.environ.get("SCAN_MAX_NEW", "3"))
 
+# --- code audit (judgment-based detector, runs on demand or scheduled) -----
+AUDIT_SCOPE = os.environ.get(
+    "AUDIT_SCOPE", "superset/utils/ - Python code-level defects")
+AUDIT_MAX_NEW = int(os.environ.get("AUDIT_MAX_NEW", "2"))
+
 # --- autonomy mode ---------------------------------------------------------
 # Teams differ in risk appetite. One knob sets how much the pipeline decides
 # on its own vs. how often it stops for a human:
