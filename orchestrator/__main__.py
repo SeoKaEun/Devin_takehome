@@ -128,10 +128,18 @@ def cmd_scan():
     return 0
 
 
+def cmd_audit():
+    from . import auditor
+    config.require("GITHUB_TOKEN", "DEVIN_API_KEY")
+    filed = auditor.run_audit(log=log)
+    print(f"audit complete: {filed} new issue(s) filed")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(prog="orchestrator")
     ap.add_argument("command", choices=["healthcheck", "once", "run", "status",
-                                        "dashboard", "scan"])
+                                        "dashboard", "scan", "audit"])
     args = ap.parse_args()
     return {
         "healthcheck": cmd_healthcheck,
@@ -140,6 +148,7 @@ def main():
         "status": cmd_status,
         "dashboard": cmd_dashboard,
         "scan": cmd_scan,
+        "audit": cmd_audit,
     }[args.command]()
 
 
