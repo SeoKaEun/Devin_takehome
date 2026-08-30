@@ -5,6 +5,8 @@
   python -m orchestrator run           # continuous loop (the daemon mode)
   python -m orchestrator status        # human-readable state summary
   python -m orchestrator dashboard     # regenerate the HTML dashboard
+  python -m orchestrator pause         # stop NEW sessions; running ones finish
+  python -m orchestrator resume        # lift pause, reset the circuit breaker
 
   SIMULATE=1 python -m orchestrator run   # full offline demo, no credentials
 """
@@ -136,10 +138,33 @@ def cmd_audit():
     return 0
 
 
+def cmd_pause():
+    p = config.pause_file()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(st.utcnow(), encoding="utf-8")
+    print(f"paused: {p}\n"
+          "no new sessions will start; running sessions are monitored and gated "
+          "to completion. `python -m orchestrator resume` lifts it.")
+    return 0
+
+
+def cmd_resume():
+    p = config.pause_file()
+    if p.exists():
+        p.unlink()
+    state = st.load()
+    state["meta"]["consecutive_attention"] = 0
+    state["meta"]["dispatch_halted"] = ""
+    st.save(state)
+    print("resumed: pause lifted, circuit breaker reset; dispatch continues on the next tick")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(prog="orchestrator")
     ap.add_argument("command", choices=["healthcheck", "once", "run", "status",
-                                        "dashboard", "scan", "audit"])
+                                        "dashboard", "scan", "audit",
+                                        "pause", "resume"])
     args = ap.parse_args()
     return {
         "healthcheck": cmd_healthcheck,
@@ -149,6 +174,8 @@ def main():
         "dashboard": cmd_dashboard,
         "scan": cmd_scan,
         "audit": cmd_audit,
+        "pause": cmd_pause,
+        "resume": cmd_resume,
     }[args.command]()
 
 

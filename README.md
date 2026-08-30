@@ -15,18 +15,19 @@ Built against a fork of [apache/superset](https://github.com/apache/superset):
 
 ## The problem
 
-Scanners (Dependabot, Snyk, OSV) already *find* vulnerable dependencies.
-The backlog rots at the *processing* step, because three ticket types resist
-automation:
+Scanners such as Dependabot, Snyk, and OSV already *find* vulnerable
+dependencies. The backlog accumulates at the *processing* step, because three
+kinds of ticket resist automation:
 
-| Ticket type | waiting reason | Example in this repo |
+| Ticket type | Why it stays open | Example in this repository |
 |---|---|---|
-| Major-version upgrade with breaking changes | bumping the pin breaks CI; nobody volunteers | flask 2.3.3 -> 3.1.3 ([#1](https://github.com/SeoKaEun/devin_takehome_assignment/issues/1)) |
-| Advisory with **no fixed release** | requires investigation, not a bump | paramiko PYSEC-2026-2858 ([#3](https://github.com/SeoKaEun/devin_takehome_assignment/issues/3)) |
-| Non-security tech debt | always loses prioritization | react-loadable -> React.lazy ([#4](https://github.com/SeoKaEun/devin_takehome_assignment/issues/4)) |
+| Major-version upgrade with breaking changes | Bumping the pin breaks CI and nobody volunteers to chase the breakage | flask 2.3.3 -> 3.1.3 ([#1](https://github.com/SeoKaEun/devin_takehome_assignment/issues/1)) |
+| Advisory with **no fixed release** | Requires investigation and a judgment, not a version bump | paramiko PYSEC-2026-2858 ([#3](https://github.com/SeoKaEun/devin_takehome_assignment/issues/3)) |
+| Non-security tech debt | Always loses prioritization against feature work | react-loadable -> React.lazy ([#4](https://github.com/SeoKaEun/devin_takehome_assignment/issues/4)) |
 
-Each of these costs an engineer half a day to several days. This pipeline
-changes the marginal cost of a ticket from engineer-hours to a few ACUs.
+Each of these costs an engineer between half a day and several days. This
+pipeline changes the marginal cost of a ticket from engineer-hours to a few
+ACUs, and it does so without trusting the agent's own account of its work.
 
 ## Architecture
 
@@ -82,10 +83,32 @@ Design rules, and why:
   human decides. Every session carries `tags` (audit), `max_acu_limit`
   (cost ceiling), and `idempotent` (a retried dispatch can never double-fire).
 
+## Detection is complete; spending is governed downstream
+
+The scanner files **every** finding it can attribute to a pinned version, so
+the issue tracker is a complete record of the known backlog. What actually
+runs is decided by the dispatcher, which is where every cost control lives:
+
+| Control | Default | Effect |
+|---|---|---|
+| `MAX_CONCURRENT_SESSIONS` | 2 | Work and review sessions in flight at any moment |
+| `MAX_ACU_PER_SESSION` | 10 (reviews: 5) | Hard ceiling passed to Devin per session |
+| `SESSION_TIMEOUT_MIN` | 90 | A silent session is escalated, not waited on |
+| `ACU_BUDGET` | 0 (unlimited) | Total ACU the pipeline may commit across all sessions. New work stops when the next session would exceed it; reviews of work already started still run |
+| `MAX_CONSECUTIVE_ATTENTION` | 3 | Circuit breaker: that many suspicion-lane outcomes in a row halt all dispatch until a human runs `resume` |
+| `orchestrator pause` / `resume` | - | Manual brake (a `state/PAUSE` file). New sessions stop; running ones finish through the normal gates |
+
+Every brake stops *new* sessions only. Sessions already running are
+monitored and gated to completion, so a halt always winds down to a clean,
+resumable state, and the dashboard shows why dispatch is closed.
+`SCAN_MAX_NEW` / `AUDIT_MAX_NEW` remain available for teams that also want
+burst control at the filing step (0 = file everything, the default).
+
 ## Autonomy modes
 
-Teams differ in risk appetite. One knob (`AUTONOMY_MODE`) sets how often the
-pipeline stops for a human - it never changes *which* safety lines exist:
+Teams differ in risk appetite. One setting (`AUTONOMY_MODE`) determines how
+often the pipeline stops for a human. It never changes *which* safety lines
+exist:
 
 | | `supervised` | `balanced` (default) | `autopilot` |
 |---|---|---|---|
@@ -94,51 +117,68 @@ pipeline stops for a human - it never changes *which* safety lines exist:
 | Review-approved PR | human merges | human merges | **auto-merge** |
 | Escalations, out-of-contract source changes, anomalies | human | human | human (always) |
 
-Recommended adoption path: start `supervised`, move to `autopilot` as trust
-accumulates.
+The recommended adoption path is to start in `supervised` and move toward
+`autopilot` as the track record accumulates.
 
-**The criterion behind the safety lines.** A decision is automatable only when
-it is *machine-verifiable* (checkable against the pre-agreed contract: tests,
-scope, independent review) **and** *reversible* (bounded blast radius - a merged
-PR reverts; docs/tests cannot break production). Three kinds of decisions fail
-that test in principle, so they stay human in every mode: **risk acceptance**
-(living with an unfixable advisory is an accountability question, not a
-technical one - automation prepares the decision, a human signs it), **contract
-amendment** (out-of-contract source changes remove the very baseline the
-machine verifies against; only the contract's author may widen it), and
-**unexplained state** (timeouts, schema violations, contradictions - once the
-system cannot prove what is happening, acting automatically means acting on
-unknown state, so it stops loudly instead).
+**The criterion behind the safety lines.** A decision is automatable only
+when it is *machine-verifiable* (checkable against the pre-agreed contract:
+tests, scope, independent review) **and** *reversible* (bounded blast radius:
+a merged PR reverts; docs and tests cannot break production). Three kinds of
+decision fail that test in principle and therefore stay with a human in every
+mode: **risk acceptance** (living with an unfixable advisory is an
+accountability question - automation prepares the decision, a human signs
+it), **contract amendment** (an out-of-contract source change removes the very
+baseline the machine verifies against, so only the contract's author may widen
+it), and **unexplained state** (timeouts, schema violations, contradictions -
+once the system cannot prove what is happening, acting automatically means
+acting on unknown state, so it stops loudly instead).
 
-## What happened in the live run (all real, verifiable on the fork)
+## Results (all real, verifiable on the fork)
 
-| Issue | Outcome | Story |
+**First run - the seeded backlog.**
+
+| Issue | Outcome | What happened |
 |---|---|---|
-| [#2 setuptools 80.9.0->83.0.0](https://github.com/SeoKaEun/devin_takehome_assignment/issues/2) | **fixed** ([PR #5](https://github.com/SeoKaEun/devin_takehome_assignment/pull/5)) | Work session opened a PR; the **independent review session rejected it**, catching a real latent break (nodeenv 1.8.0 imports `pkg_resources`, removed in setuptools >= 82 - reproduced, plus doc drift). Findings were routed back automatically; the author fixed them on the same PR; a second review approved. Gate 1 also flagged the widened diff twice; a human accepted the scope growth (that decision is now the `balanced` policy's auto-accept rule for docs/tests). |
-| [#3 paramiko PYSEC-2026-2858](https://github.com/SeoKaEun/devin_takehome_assignment/issues/3) | **escalated** | No fixed release exists, and the repo's own constraint (`paramiko <4.0`, sshtunnel still uses DSSKey) blocks the 4.x line. Devin filed an evidence-backed report - advisory status, blocking chain, exposure assessment, mitigation, revisit trigger - instead of forcing a breaking PR. |
-| [#1 flask 2.3.3->3.1.3](https://github.com/SeoKaEun/devin_takehome_assignment/issues/1) | **fixed** ([PR #9](https://github.com/SeoKaEun/devin_takehome_assignment/pull/9)) | Major-version upgrade. Devin found the one true breaking dependency (flask-babel 3.1.0 imports a helper Flask 3 removed, via the flask-appbuilder chain), bumped it to 4.0.0, and proved no app-code changes were needed: `pytest tests/unit_tests` identical to the master baseline (13,328 passed). The independent review rejected the first attempt, was routed back, then approved: "does exactly what issue #1 requires and nothing more - 3 files, +8/-5." |
+| [#2 setuptools 80.9.0 -> 83.0.0](https://github.com/SeoKaEun/devin_takehome_assignment/issues/2) | **fixed** ([PR #5](https://github.com/SeoKaEun/devin_takehome_assignment/pull/5)) | The work session opened a PR; the **independent review session rejected it**, catching a real latent break (nodeenv 1.8.0 imports `pkg_resources`, removed in setuptools >= 82 - reproduced, plus documentation drift). The findings were routed back automatically, the author fixed them on the same PR, and a second review approved. Gate 1 also flagged the widened diff twice; a human accepted the scope growth, and that decision is now the `balanced` policy's auto-accept rule for docs and tests. |
+| [#3 paramiko PYSEC-2026-2858](https://github.com/SeoKaEun/devin_takehome_assignment/issues/3) | **escalated** | No fixed release exists, and the repository's own constraint (`paramiko <4.0`; sshtunnel still uses DSSKey) blocks the 4.x line. Devin filed an evidence-backed report - advisory status, blocking chain, exposure assessment, mitigation, revisit trigger - instead of forcing a breaking PR. |
+| [#1 flask 2.3.3 -> 3.1.3](https://github.com/SeoKaEun/devin_takehome_assignment/issues/1) | **fixed** ([PR #9](https://github.com/SeoKaEun/devin_takehome_assignment/pull/9)) | Major-version upgrade. Devin found the one true breaking dependency (flask-babel 3.1.0 imports a helper Flask 3 removed, via the flask-appbuilder chain), bumped it to 4.0.0, and proved no application-code changes were needed: `pytest tests/unit_tests` identical to the master baseline (13,328 passed). The review rejected the first attempt, it was routed back, then approved: "does exactly what issue #1 requires and nothing more - 3 files, +8/-5." |
 | [#4 react-loadable -> React.lazy](https://github.com/SeoKaEun/devin_takehome_assignment/issues/4) | **fixed** ([PR #8](https://github.com/SeoKaEun/devin_takehome_assignment/pull/8)) | Multi-file frontend refactor, review-approved on the first pass. |
 
-**Final tally** (all derived from pipeline records): 4/4 issues terminal -
-3 verified PRs + 1 evidence-backed escalation. 9 Devin sessions (4 work,
-5 review). 2 defective fixes caught by independent review before any human saw
-them. Average detection-to-resolution: ~50 min wall-clock. Human involvement:
-4 logged decisions (one timeout extension, scope-policy widenings, one
-calibration judgment) and the merge button - no code written or reviewed by a
-human.
+Tally: 4/4 issues terminal - 3 verified PRs and 1 evidence-backed
+escalation. 9 Devin sessions (4 work, 5 review). 2 defective fixes caught by
+independent review before any human saw them. Average detection-to-resolution
+about 50 minutes of wall-clock time. Human involvement: 4 logged decisions
+(one timeout extension, scope-policy widenings, one calibration judgment) and
+the merge button. No code was written or reviewed by a human.
 
-## Why Devin (and not a rules bot)
+**Automated sources.** The code audit filed
+[#10](https://github.com/SeoKaEun/devin_takehome_assignment/issues/10) and
+[#11](https://github.com/SeoKaEun/devin_takehome_assignment/issues/11)
+(defects in `excel.py` and `json.py` that no dependency scanner can see);
+the dependency scanner filed
+[#12](https://github.com/SeoKaEun/devin_takehome_assignment/issues/12),
+[#16](https://github.com/SeoKaEun/devin_takehome_assignment/issues/16),
+[#18](https://github.com/SeoKaEun/devin_takehome_assignment/issues/18),
+[#19](https://github.com/SeoKaEun/devin_takehome_assignment/issues/19) and
+[#20](https://github.com/SeoKaEun/devin_takehome_assignment/issues/20).
+Each was picked up by the pipeline and carried to a pull request
+(#13, #14, #15, #17, #21, #22, #23) with no manual step between detection and
+dispatch; #18 and #20 passed both gates and independent review within
+50 minutes of being filed.
 
-Dependabot's three structural limits are exactly issues #1/#3/#4: it cannot
-fix the code its own version bump breaks; it does nothing when no fixed
-release exists; it does not do refactors. Closing those gaps takes the loop
-*read the failure -> find the cause -> change code -> re-test* - which is an
-autonomous agent, used here as a programmable primitive in three roles:
-worker, independent reviewer, and (in the escalation path) investigator.
+## Why Devin, and not a rules bot
+
+Dependabot's three structural limits are exactly issues #1, #3 and #4: it
+cannot fix the code its own version bump breaks, it does nothing when no fixed
+release exists, and it does not refactor. Closing those gaps requires the loop
+*read the failure -> find the cause -> change code -> re-test*, which is an
+autonomous agent. Here that agent is used as a programmable primitive in four
+roles - auditor, implementer, independent reviewer, and investigator - under
+the same separation of duties applied between human engineers.
 
 ## Run it
 
-### Simulate (no credentials, no network, ~30 seconds)
+### Simulate (no credentials, no network, about 30 seconds)
 
 Exercises every state transition - dispatch, gates, independent review,
 rework, escalation, nudge - against scripted fixtures modeled on the real
@@ -158,37 +198,39 @@ python -m orchestrator healthcheck       # verifies both credentials, no side ef
 docker compose up         # or: python -m orchestrator run
 ```
 
-The loop scans dependencies every 30 min (files contract-shaped issues for
-new advisories), watches for the `devin-remediate` label, and drives every
-issue to a terminal state. `python -m orchestrator status` for a terminal
-summary; `state/dashboard.html` auto-refreshes with per-issue activity
+The loop scans dependencies every 30 minutes (filing contract-shaped issues
+for new advisories), watches for the `devin-remediate` label, and drives every
+issue to a terminal state. `python -m orchestrator status` prints a terminal
+summary; `state/dashboard.html` refreshes itself with per-issue activity
 streams and raw agent logs.
 
-Requirements: Python 3.12+ (stdlib only - there is nothing to pip-install),
-or Docker. GitHub fine-grained PAT with Issues/Contents/PRs RW on the fork.
-The Devin account needs its GitHub integration connected to the fork.
+Requirements: Python 3.12+ (standard library only - there is nothing to
+install) or Docker; a GitHub fine-grained PAT with Issues, Contents and Pull
+requests read/write on the fork; a Devin account whose GitHub integration is
+connected to the fork.
 
 ### CLI
 
 ```
-python -m orchestrator healthcheck | scan | once | run | status | dashboard
+python -m orchestrator healthcheck | scan | audit | once | run | status | dashboard | pause | resume
 ```
 
 ### Tests
 
-Stdlib `unittest`, no network, no credentials, sub-second:
+Standard-library `unittest`, no network, no credentials, about one second:
 
 ```bash
 python -m unittest discover -s tests
 ```
 
-19 tests cover the contract layer (spec matching, closed outcome enums,
-prompt invariants), the scanner's parsing and templating, and - via the
-simulation clients - the full pipeline: all four terminal narratives, the
-bounded rework loop (review rejects -> findings routed back -> re-review
-approves), the idle-session nudge, the concurrency cap on every tick, and
-the suspicion-lane invariants (a `fixed` claim with no PR, a nonexistent PR,
-a `blocked` claim without evidence - each must stop the pipeline, loudly).
+26 tests cover the contract layer (spec matching, closed outcome enums,
+prompt invariants), the scanner's parsing and templating, the full pipeline
+via the simulation clients (all four terminal narratives, the bounded rework
+loop, the idle-session nudge, the concurrency cap on every tick), the
+suspicion-lane invariants (a `fixed` claim with no PR, a nonexistent PR, a
+`blocked` claim without evidence - each must stop the pipeline, loudly), and
+the three brakes (pause, ACU budget, circuit breaker - each must stop new
+sessions, let running ones finish, and be resumable).
 
 ## Observability - "how would I know this is working?"
 
@@ -198,44 +240,52 @@ records. Nothing is estimated and nothing comes from the agent's self-report.
 | Question | Where to look |
 |---|---|
 | What is active, what is done? | `state/dashboard.html` tiles: **Fixed, PR verified** / **Escalated with evidence** / **Needs attention** / **In progress**; the Issues table (state, PR, duration); a per-issue timeline of every transition |
-| Is it succeeding or failing? | **Quality & control** panel: review rejections caught, autonomous rework rounds vs. the bound, human decisions logged. Failures never go silent: anything unprovable lands in **Needs attention** (red) with a comment saying what happened and what to check |
-| Is it moving, and what does it cost? | **Operations** panel: last tick, last scan (+issues filed), pipeline errors, concurrent sessions vs. cap, ACU ceiling; **Avg resolution** tile; `n/m resolved` in the header. The page refreshes every 15 s and shows a **Stale** banner if the loop has been silent for 3 min |
+| Is it succeeding or failing? | **Quality & control** panel: review rejections caught, autonomous rework rounds against the bound, human decisions logged. Failures never go silent: anything unprovable lands in **Needs attention** (red) with a comment saying what happened and what to check |
+| Is it moving, and what does it cost? | **Operations** panel: last tick, last scan (+issues filed), pipeline errors, concurrent sessions against the cap, **ACU committed** against the budget, **Dispatch** (open / paused / budget reached / circuit open), circuit-breaker streak. The page refreshes every 15 seconds and shows a **Stale** banner if the loop has been silent for 3 minutes |
 | What did the agent actually do? | Each issue's **Problem -> Fix -> Result** block, the raw agent log (expandable), and links to the work and review sessions on app.devin.ai |
-| Without a browser? | `python -m orchestrator status` (one line per issue), `state/orchestrator.log` (every tick), and the comment trail the pipeline leaves on each GitHub issue (session started, fix verified, review verdict, escalation report) |
+| Without a browser? | `python -m orchestrator status` (one line per issue), `state/orchestrator.log` (every tick and every brake change), and the comment trail the pipeline leaves on each GitHub issue (session started, fix verified, review verdict, escalation report) |
 
 ## Repository layout
 
 ```
 orchestrator/
-  config.py        env-driven knobs, autonomy policies
+  config.py        env-driven knobs, autonomy policies, brakes
   contracts.py     task-contract prompts, output schemas, per-issue scope specs
   scanner.py       OSV scan -> contract-shaped issues (the automated event source)
-  pipeline.py      the tick: watch -> dispatch -> monitor -> gates -> report
-  state.py         single source of truth (state.json, atomic writes, timelines)
-  dashboard.py     state.json -> static HTML (KPIs + per-issue streams)
+  auditor.py       Devin code audit -> contract-shaped issues (the judgment-based source)
+  pipeline.py      the tick: watch -> brakes -> dispatch -> monitor -> gates -> report
+  state.py         single source of truth (state.json, atomic writes, timelines, counters)
+  dashboard.py     state.json -> static HTML (KPIs, control panels, per-issue streams)
   devin_client.py  the ONLY module that talks to the Devin API
-  github_client.py issues in, comments/PR-verification/merge out
+  github_client.py issues in, comments / PR verification / merge out
   clients.py       real/simulation seam (also the GH-Enterprise adapter point)
   sim.py           offline fixtures for the full pipeline
 scripts/
   seed_issues.py   Part-1 backlog seeding (idempotent, --dry-run)
-tests/             unittest suite (stdlib-only, offline, sub-second)
+tests/             unittest suite (stdlib-only, offline, about one second)
 ```
 
-Two hard guards worth knowing about: `.github/` is on a global denylist -
-no session may touch CI workflows in any autonomy mode (workflow edits are a
-privilege-escalation surface); and issues without a hand-written scope spec
-get a bounded default (manifests, source, docs, tests), never
+Two hard guards are worth knowing about: `.github/` is on a global denylist -
+no session may touch CI workflows in any autonomy mode, because workflow
+edits are a privilege-escalation surface; and issues without a hand-written
+scope spec get a bounded default (manifests, source, docs, tests), never
 "anything goes".
 
 ## Production notes (what changes in a real engagement)
 
-- Polling -> GitHub App webhooks (the event boundary in code is unchanged).
-- Personal PAT -> GitHub App installation; fork -> real repos with branch
-  protection; `state.json` -> a database.
-- Session latency: pre-built machine **snapshots** (repo cloned, deps
-  installed) cut the ~15-min environment setup from every session;
-  org-level **Knowledge** teaches repo conventions once instead of per
-  session. Together these should roughly halve time-per-issue.
-- Reviewer-session reuse across rework rounds (message the same reviewer
-  instead of spawning a fresh one) trims the per-issue session count.
+- **Prioritization.** Detection is already complete and spend is already
+  bounded; what is missing is ordering. A triage step between detection and
+  dispatch would rank the queue by severity and exploitability so that a
+  portfolio-level budget is spent on the most dangerous findings first rather
+  than on the first ones filed.
+- **Event delivery.** Polling -> GitHub App webhooks (the event boundary in
+  code is unchanged).
+- **Tenancy.** Personal PAT -> GitHub App installation; fork -> real
+  repositories with branch protection; `state.json` -> a database.
+- **Session latency.** Pre-built machine **snapshots** (repository cloned,
+  dependencies installed) remove the ~15-minute environment setup from every
+  session; organization-level **Knowledge** with a playbook per ticket type
+  teaches repository conventions once instead of per session. Together these
+  should roughly halve time-per-issue.
+- **Reviewer reuse.** Messaging the same reviewer across rework rounds instead
+  of spawning a fresh one trims the per-issue session count.

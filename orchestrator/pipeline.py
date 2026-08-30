@@ -31,6 +31,7 @@ def tick(gh, devin, state, log=print):
     state["meta"]["last_tick_at"] = st.utcnow()
 
     _watch(gh, state, log)
+    _brakes(state, log)  # once per tick, O(1) - dispatchers read the verdict
 
     for key in sorted(state["issues"], key=int):
         entry = state["issues"][key]
@@ -69,6 +70,65 @@ def _advance(gh, devin, state, key, entry, log):
     # terminal states: nothing to do
 
 
+# --- Brakes -----------------------------------------------------------------
+# Three ways to stop spending without killing the process. All of them halt
+# NEW sessions only: running sessions keep being monitored and gated, so the
+# pipeline always winds down to a clean, resumable state.
+
+def _review_cap():
+    return max(2, config.MAX_ACU_PER_SESSION // 2)  # reviews are cheaper
+
+
+def _backfill_counters(state):
+    """One-time migration for a state.json written before the counters
+    existed: rebuild acu_committed from the timeline, then never again."""
+    meta = state["meta"]
+    if "acu_committed" in meta:
+        return
+    work = review = 0
+    for e in state["issues"].values():
+        for t in e.get("timeline", []):
+            if t["event"] == "state: queued -> working":
+                work += 1
+            elif t["event"] == "state: review_pending -> review_working":
+                review += 1
+    meta["acu_committed"] = work * config.MAX_ACU_PER_SESSION + review * _review_cap()
+    meta.setdefault("consecutive_attention", 0)
+
+
+def _brakes(state, log):
+    """Evaluate every brake once per tick and store the verdict in meta so
+    the per-issue dispatchers only read a flag. Logs only when the verdict
+    changes - a halted pipeline must not spam its own log every 30 s."""
+    _backfill_counters(state)
+    meta = state["meta"]
+    reasons = []
+    if config.pause_file().exists():
+        reasons.append("paused (state/PAUSE present - `orchestrator resume` lifts it)")
+    streak = meta.get("consecutive_attention", 0)
+    if config.MAX_CONSECUTIVE_ATTENTION and streak >= config.MAX_CONSECUTIVE_ATTENTION:
+        reasons.append(f"circuit open ({streak} consecutive needs_attention outcomes - "
+                       f"investigate, then `orchestrator resume`)")
+    halted = "; ".join(reasons)
+
+    committed = meta.get("acu_committed", 0)
+    exhausted = bool(config.ACU_BUDGET
+                     and committed + config.MAX_ACU_PER_SESSION > config.ACU_BUDGET)
+
+    if halted != meta.get("dispatch_halted", "") or exhausted != meta.get("budget_exhausted", False):
+        waiting = sum(1 for e in state["issues"].values()
+                      if e["state"] in (st.QUEUED, st.REVIEW_PENDING))
+        if halted:
+            log(f"[||] dispatch halted: {halted} ({waiting} waiting)")
+        elif exhausted:
+            log(f"[||] ACU budget reached: {committed} of {config.ACU_BUDGET} committed - "
+                f"no new work sessions ({waiting} waiting); reviews of running work continue")
+        else:
+            log("[||] dispatch open")
+    meta["dispatch_halted"] = halted
+    meta["budget_exhausted"] = exhausted
+
+
 # --- 2 Dispatcher -----------------------------------------------------------
 
 def _live_sessions(state):
@@ -76,6 +136,9 @@ def _live_sessions(state):
 
 
 def _dispatch_work(gh, devin, state, key, entry, log):
+    meta = state["meta"]
+    if meta.get("dispatch_halted") or meta.get("budget_exhausted"):
+        return  # brake engaged; stay queued, the verdict is on the dashboard
     if _live_sessions(state) >= config.MAX_CONCURRENT_SESSIONS:
         return  # stay queued; next tick retries
     resp = devin.create_session(
@@ -89,6 +152,7 @@ def _dispatch_work(gh, devin, state, key, entry, log):
         "id": resp["session_id"], "url": resp.get("url", ""),
         "created_at": st.utcnow(), "nudged_at": None, "last_status": "created",
     }
+    st.commit_acu(state, config.MAX_ACU_PER_SESSION)
     st.transition(state, key, st.WORKING,
                   f"cap {config.MAX_ACU_PER_SESSION} ACU · "
                   f"timeout {config.SESSION_TIMEOUT_MIN}m")
@@ -254,6 +318,8 @@ def _gate1(gh, devin, state, key, entry, session_detail, log):
 # --- 5 Gate 2: independent Devin review session -----------------------------
 
 def _dispatch_review(gh, devin, state, key, entry, log):
+    if state["meta"].get("dispatch_halted"):
+        return  # pause / circuit breaker apply to reviews too (budget does not)
     if _live_sessions(state) >= config.MAX_CONCURRENT_SESSIONS:
         return
     resp = devin.create_session(
@@ -262,12 +328,13 @@ def _dispatch_review(gh, devin, state, key, entry, log):
         tags=["remediation-bot", f"issue-{key}", "role-review"],
         structured_output_schema=contracts.REVIEW_SCHEMA,
         idempotent=True,
-        max_acu_limit=max(2, config.MAX_ACU_PER_SESSION // 2),  # reviews are cheaper
+        max_acu_limit=_review_cap(),
     )
     entry["review_session"] = {
         "id": resp["session_id"], "url": resp.get("url", ""),
         "created_at": st.utcnow(), "nudged_at": None, "last_status": "created",
     }
+    st.commit_acu(state, _review_cap())
     st.transition(state, key, st.REVIEW_WORKING, f"review session {resp['session_id']}")
     log(f"[>] issue #{key}: review session started")
 

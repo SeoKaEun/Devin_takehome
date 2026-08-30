@@ -250,14 +250,20 @@ def render(state):
             done_minutes.append(delta.total_seconds() / 60)
     avg_done = (f"{int(sum(done_minutes) / len(done_minutes))}m"
                 if done_minutes else "-")
-    acu_ceiling = (n_work * config.MAX_ACU_PER_SESSION
-                   + n_review * max(2, config.MAX_ACU_PER_SESSION // 2))
-
     meta = state.get("meta", {})
     tick_errors = meta.get("tick_errors", 0)
+    # spend ceiling = sum of per-session caps handed out (kept by the pipeline);
+    # fall back to a presence count for a state.json written before the counter
+    acu_ceiling = meta.get("acu_committed",
+                           n_work * config.MAX_ACU_PER_SESSION
+                           + n_review * max(2, config.MAX_ACU_PER_SESSION // 2))
+    halted = meta.get("dispatch_halted", "")
+    budget_exhausted = meta.get("budget_exhausted", False)
 
     if n_attention > 0:
         pill = f'<span class="pill"><span class="dot s-crit"></span>Action required</span>'
+    elif halted or budget_exhausted:
+        pill = f'<span class="pill"><span class="dot s-warn"></span>Halted</span>'
     elif tick_errors > 0:
         pill = f'<span class="pill"><span class="dot s-warn"></span>Degraded</span>'
     else:
@@ -275,7 +281,9 @@ def render(state):
              "s-crit" if n_attention else "s-good"),
         tile(in_progress, "In progress", "s-run" if in_progress else None),
         tile(avg_done, "Avg resolution"),
-        tile(f"&le;{acu_ceiling}", "ACU ceiling"),
+        tile(f"&le;{acu_ceiling}" + (f" / {config.ACU_BUDGET}" if config.ACU_BUDGET else ""),
+             "ACU committed" + (" / budget" if config.ACU_BUDGET else ""),
+             "s-warn" if budget_exhausted else None),
     ])
 
     def prow(label, value, tag_html=""):
@@ -302,6 +310,15 @@ def render(state):
         prow("Concurrent sessions",
              f"{active_now} / {config.MAX_CONCURRENT_SESSIONS}",
              ok if active_now <= config.MAX_CONCURRENT_SESSIONS else act),
+        prow("Dispatch",
+             html.escape(halted) if halted
+             else ("budget reached - new work waits" if budget_exhausted else "open"),
+             act if halted else (warn if budget_exhausted else ok)),
+        prow("Circuit breaker",
+             f"{meta.get('consecutive_attention', 0)} / "
+             f"{config.MAX_CONSECUTIVE_ATTENTION or '&infin;'} consecutive attention",
+             ok if not (config.MAX_CONSECUTIVE_ATTENTION and meta.get("consecutive_attention", 0)
+                        >= config.MAX_CONSECUTIVE_ATTENTION) else act),
     ])
 
     # --- issues table -------------------------------------------------------

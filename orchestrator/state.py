@@ -64,6 +64,20 @@ def transition(state, issue_key, new_state, reason=""):
     entry["state"] = new_state
     entry[f"{new_state}_at"] = utcnow()
     record(state, issue_key, f"state: {old} -> {new_state}", reason)
+    # circuit-breaker input: every transition passes through here, so the
+    # run of consecutive suspicion-lane outcomes is tracked in one place, O(1)
+    meta = state.setdefault("meta", {})
+    if new_state == NEEDS_ATTENTION:
+        meta["consecutive_attention"] = meta.get("consecutive_attention", 0) + 1
+    elif new_state in (DONE_FIXED, DONE_ESCALATED):
+        meta["consecutive_attention"] = 0
+
+
+def commit_acu(state, amount):
+    """Record the ceiling handed to a newly created session. The running total
+    is the ACU_BUDGET brake's input and the dashboard's spend ceiling."""
+    meta = state.setdefault("meta", {})
+    meta["acu_committed"] = meta.get("acu_committed", 0) + amount
 
 
 def new_issue_entry(issue):

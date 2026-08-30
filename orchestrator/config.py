@@ -61,6 +61,22 @@ AUDIT_SCOPE = os.environ.get(
     "AUDIT_SCOPE", "superset/utils/ - Python code-level defects")
 AUDIT_MAX_NEW = int(os.environ.get("AUDIT_MAX_NEW", "0"))  # 0 = file every finding
 
+# --- brakes ----------------------------------------------------------------
+# Each brake stops NEW sessions only; sessions already running are monitored
+# and gated to completion, so a halt is always clean and resumable.
+#   ACU_BUDGET                - total ACU the pipeline may commit (sum of the
+#                               per-session ceilings it has handed out).
+#                               New work sessions stop when the next one would
+#                               exceed it; reviews of already-started work
+#                               still run. 0 = unlimited.
+#   MAX_CONSECUTIVE_ATTENTION - circuit breaker: this many needs_attention
+#                               outcomes in a row halts all dispatch until a
+#                               human runs `orchestrator resume`. 0 = off.
+#   state/PAUSE               - manual switch: `orchestrator pause` / `resume`
+#                               (or create / delete the file).
+ACU_BUDGET = int(os.environ.get("ACU_BUDGET", "0"))
+MAX_CONSECUTIVE_ATTENTION = int(os.environ.get("MAX_CONSECUTIVE_ATTENTION", "3"))
+
 # --- autonomy mode ---------------------------------------------------------
 # Teams differ in risk appetite. One knob sets how much the pipeline decides
 # on its own vs. how often it stops for a human:
@@ -82,6 +98,12 @@ POLICY = _POLICIES.get(AUTONOMY_MODE, _POLICIES["balanced"])
 STATE_PATH = Path(os.environ.get("STATE_PATH", str(ROOT / "state" / "state.json")))
 DASHBOARD_PATH = Path(os.environ.get("DASHBOARD_PATH", str(ROOT / "state" / "dashboard.html")))
 LOG_PATH = Path(os.environ.get("LOG_PATH", str(ROOT / "state" / "orchestrator.log")))
+
+
+def pause_file():
+    """Presence of this file halts new dispatch. Derived from STATE_PATH at
+    call time so it follows a relocated state directory (tests, containers)."""
+    return STATE_PATH.parent / "PAUSE"
 
 
 def require(*names):
