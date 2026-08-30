@@ -297,42 +297,130 @@ the same separation of duties applied between human engineers.
 
 ## Getting started
 
-### Simulation (no credentials, no network, about 30 seconds)
+### Prerequisites
 
-Exercises every state transition - dispatch, gates, independent review,
-rework, escalation, nudge - against scripted fixtures modeled on the real
-backlog:
-
-```bash
-docker compose run --rm simulate         # or: SIMULATE=1 python -m orchestrator run
-```
-
-Then open `state/dashboard.html`.
-
-### Live
+| | Simulation | Live |
+|---|---|---|
+| Runtime | Docker, **or** Python 3.12+ (standard library only; nothing to install) | same |
+| Devin | not needed | API key from app.devin.ai (Settings -> API keys), with the GitHub integration connected to the fork |
+| GitHub | not needed | fine-grained personal access token with **Issues**, **Contents** and **Pull requests** read/write on the fork |
 
 ```bash
-cp .env.example .env      # fill in DEVIN_API_KEY, GITHUB_TOKEN, GITHUB_OWNER
-python -m orchestrator healthcheck       # verifies both credentials, no side effects
-docker compose up         # or: python -m orchestrator run
+git clone https://github.com/SeoKaEun/Devin_takehome.git
+cd Devin_takehome
 ```
 
-The loop scans dependencies every 30 minutes (filing contract-shaped issues
-for new advisories), watches for the `devin-remediate` label, and drives every
-issue to a terminal state. `python -m orchestrator status` prints a terminal
-summary; `state/dashboard.html` refreshes itself with per-issue activity
-streams and raw agent logs.
+### Option A - Simulate the workflow (no credentials, about 30 seconds)
 
-Requirements: Python 3.12+ (standard library only - there is nothing to
-install) or Docker; a GitHub fine-grained PAT with Issues, Contents and Pull
-requests read/write on the fork; a Devin account whose GitHub integration is
-connected to the fork.
+The simulation replaces the Devin and GitHub clients with scripted fixtures
+modeled on the real backlog and runs the unmodified orchestrator against
+them. Every state transition is exercised: dispatch under the concurrency
+cap, Gate 1, independent review, a review rejection followed by one rework
+round and re-approval, an escalation with evidence, and an idle-session nudge.
 
-### CLI
+With Docker:
+
+```bash
+docker compose run --rm simulate
+```
+
+With Python:
+
+```bash
+SIMULATE=1 python -m orchestrator run          # macOS / Linux
+$env:SIMULATE="1"; python -m orchestrator run  # Windows PowerShell
+```
+
+The run prints one line per event and exits when all four fixture issues
+reach a terminal state:
 
 ```
-python -m orchestrator healthcheck | scan | audit | once | run | status | dashboard | pause | resume
+[+] discovered issue #1: [security] Upgrade Flask 2.3.3 to 3.1.3 (PYSEC-2026-2151)
+[>] issue #1: work session started sim://session/sim-session-1
+[Y] issue #2: gate1 passed, queuing independent review
+[E] issue #3: escalated with report
+[~] issue #1: review requested changes -> sent back for rework (round 1/1)
+[Y] issue #1: review approved -> done
+all tracked issues reached a terminal state; exiting cleanly
 ```
+
+Then open `state/dashboard.html` in a browser. The header reads
+`SIMULATION`; the tiles show 3 fixed, 1 escalated, and each issue's timeline
+is expandable under **Activity**.
+
+### Option B - Run the workflow live against the fork
+
+1. Create the configuration file and fill in the three credentials:
+
+   ```bash
+   cp .env.example .env
+   # DEVIN_API_KEY=...   GITHUB_TOKEN=...   GITHUB_OWNER=<your GitHub login>
+   ```
+
+   `FORK_REPO` and `FORK_DEFAULT_BRANCH` default to this fork; change them to
+   point the pipeline at another repository.
+
+2. Verify both credentials. This makes read-only calls and has no side
+   effects:
+
+   ```bash
+   python -m orchestrator healthcheck
+   # [ok] github: authenticated as <login>, fork=<owner>/<repo>
+   # [ok] devin: authenticated against https://api.devin.ai/v1
+   ```
+
+3. Start the orchestrator:
+
+   ```bash
+   docker compose up            # or: python -m orchestrator run
+   ```
+
+   On startup it scans the configured manifests, files an issue for every
+   untracked advisory, discovers every issue carrying the trigger label, and
+   starts Devin sessions for them, two at a time. It then polls every
+   30 seconds and drives each issue to a terminal state. The scan repeats
+   every 30 minutes.
+
+4. Watch progress in `state/dashboard.html` (self-refreshing; the header
+   reads `LIVE`), or in the terminal with:
+
+   ```bash
+   python -m orchestrator status
+   ```
+
+5. Optionally run a code audit, which starts one report-only Devin session
+   and files its evidence-backed findings as issues for the next tick:
+
+   ```bash
+   python -m orchestrator audit
+   ```
+
+6. To stop spending without stopping the process, use the brakes:
+
+   ```bash
+   python -m orchestrator pause     # no new sessions; running ones finish
+   python -m orchestrator resume    # lift the pause, reset the circuit breaker
+   ```
+
+Review-approved pull requests wait for a human merge unless
+`AUTONOMY_MODE=autopilot`.
+
+### Command reference
+
+| Command | Purpose | Side effects |
+|---|---|---|
+| `healthcheck` | Verify Devin and GitHub credentials | none |
+| `scan` | One dependency scan pass; file issues for untracked advisories | creates issues |
+| `audit` | One Devin code-audit session; file evidence-backed findings | one Devin session, creates issues |
+| `once` | One orchestrator tick (cron-friendly) | may start sessions, post comments |
+| `run` | Continuous loop: scan on schedule, tick every 30 s | as above |
+| `status` | One line per tracked issue | none |
+| `dashboard` | Regenerate `state/dashboard.html` from `state/state.json` | none |
+| `pause` / `resume` | Manual brake (creates / removes `state/PAUSE`; `resume` also resets the circuit breaker) | none |
+
+`run`, `once`, `status`, `dashboard`, `pause` and `resume` also work with
+`SIMULATE=1` against the offline fixtures; `scan` and `audit` always need
+live credentials.
 
 ### Tests
 
