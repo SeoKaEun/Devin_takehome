@@ -14,8 +14,8 @@ Built against a fork of [apache/superset](https://github.com/apache/superset):
 **Contents:**
 [The problem](#the-problem) ·
 [Architecture](#architecture) ·
-[How findings are detected](#how-findings-are-detected) ·
-[From finding to verified pull request](#from-finding-to-verified-pull-request) ·
+[Detection sources](#detection-sources) ·
+[Remediation lifecycle](#remediation-lifecycle) ·
 [Configuration](#configuration) ·
 [Autonomy modes](#autonomy-modes) ·
 [Results](#results) ·
@@ -112,11 +112,11 @@ Design rules, and why:
   human decides. Every session carries `tags` (audit), `max_acu_limit`
   (cost ceiling), and `idempotent` (a retried dispatch can never double-fire).
 
-## How findings are detected
+## Detection sources
 
-Three sources feed the same queue. Each one produces a GitHub issue whose
-body is the task contract; nothing downstream needs to know where an issue
-came from.
+Three sources feed the same queue. Each produces a GitHub issue whose body is
+the task contract, so the remediation stages are independent of where an
+issue originated.
 
 ### Dependency scanner (deterministic)
 
@@ -168,18 +168,18 @@ Examples on the fork: issues
 [#11](https://github.com/SeoKaEun/devin_takehome_assignment/issues/11)
 (`json.py`), both subsequently fixed by the pipeline.
 
-### Human label (opt-in)
+### Manual labeling (opt-in)
 
 Any issue that carries the trigger label (`TRIGGER_LABEL`, default
 `devin-remediate`) is picked up on the next tick. This is how tech-debt work
 such as [#4](https://github.com/SeoKaEun/devin_takehome_assignment/issues/4)
 enters the same pipeline as security findings.
 
-## From finding to verified pull request
+## Remediation lifecycle
 
 Every 30 seconds (`POLL_INTERVAL_SEC`) the orchestrator runs one tick over
-every tracked issue. The states are a closed set; anything that cannot be
-proven to be in a healthy state goes to `needs_attention`.
+every tracked issue. The states form a closed set, and any issue that cannot
+be proven to be in a healthy state is moved to `needs_attention`.
 
 | Step | What happens | Resulting state |
 |---|---|---|
