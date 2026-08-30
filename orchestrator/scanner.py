@@ -173,8 +173,10 @@ def _create_issue(title, body):
 
 def scan_once(log=print):
     """One scan pass over every watched manifest -> OSV -> new issues.
-    Burst-capped: files at most SCAN_MAX_NEW issues per pass; the rest are
-    deferred (and logged) so a bad disclosure day cannot stampede sessions.
+    Every finding is filed - detection is meant to be a complete record of
+    the backlog; spend is governed downstream by the dispatcher (concurrency
+    cap, per-session ACU ceiling). SCAN_MAX_NEW > 0 optionally throttles
+    filing per pass for teams that want burst control at this layer too.
     Returns the number of newly filed issues."""
     known = "\n".join(_existing_issue_titles())
     filed, deferred = 0, 0
@@ -191,7 +193,7 @@ def scan_once(log=print):
             if any(vid in known for vid in f["advisory_ids"]):
                 log(f"[scan] {f['package']}: already tracked, skipping")
                 continue
-            if filed >= config.SCAN_MAX_NEW:
+            if config.SCAN_MAX_NEW and filed >= config.SCAN_MAX_NEW:
                 deferred += 1
                 continue
             details = [_advisory_detail(vid) for vid in f["advisory_ids"][:4]]

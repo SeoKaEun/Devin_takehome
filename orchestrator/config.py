@@ -51,14 +51,15 @@ SCAN_INTERVAL_MIN = int(os.environ.get("SCAN_INTERVAL_MIN", "30"))
 # lockfiles the scanner watches (comma-separated, repo-relative)
 SCAN_MANIFESTS = [m.strip() for m in os.environ.get(
     "SCAN_MANIFESTS", "requirements/base.txt").split(",") if m.strip()]
-# burst control: max new issues filed per scan pass; the rest wait for the
-# next cycle (a 20-CVE disclosure day must not open 20 sessions at once)
-SCAN_MAX_NEW = int(os.environ.get("SCAN_MAX_NEW", "3"))
+# optional burst control: max new issues filed per scan pass (0 = no cap,
+# every finding is filed). Spend is bounded downstream regardless:
+# MAX_CONCURRENT_SESSIONS and MAX_ACU_PER_SESSION decide what actually runs.
+SCAN_MAX_NEW = int(os.environ.get("SCAN_MAX_NEW", "0"))
 
 # --- code audit (judgment-based detector, runs on demand or scheduled) -----
 AUDIT_SCOPE = os.environ.get(
     "AUDIT_SCOPE", "superset/utils/ - Python code-level defects")
-AUDIT_MAX_NEW = int(os.environ.get("AUDIT_MAX_NEW", "2"))
+AUDIT_MAX_NEW = int(os.environ.get("AUDIT_MAX_NEW", "0"))  # 0 = file every finding
 
 # --- autonomy mode ---------------------------------------------------------
 # Teams differ in risk appetite. One knob sets how much the pipeline decides

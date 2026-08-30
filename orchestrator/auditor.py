@@ -131,7 +131,7 @@ def run_audit(scope=None, log=print, timeout_min=60):
         if f["file"] in known and f["title"][:40] in known:
             log(f"[audit] already tracked, skipping: {f['title']}")
             continue
-        if filed >= config.AUDIT_MAX_NEW:
+        if config.AUDIT_MAX_NEW and filed >= config.AUDIT_MAX_NEW:
             log(f"[audit] burst cap {config.AUDIT_MAX_NEW} reached - "
                 f"deferring: {f['title']}")
             continue
