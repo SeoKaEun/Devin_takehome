@@ -1,10 +1,11 @@
-# Autonomous Vulnerability Remediation Pipeline
+# Autonomous Remediation Pipeline
 
 **Devin as the engine, deterministic orchestration as the shell.**
 
-An event-driven system that turns security-scanner findings into verified
-pull requests - or into well-evidenced escalations when a safe fix does not
-exist - with near-zero human time per ticket.
+An event-driven system that turns backlog findings - vulnerable dependencies
+from a scanner, code-level defects from a Devin audit, tech debt labeled by a
+human - into verified pull requests, or into well-evidenced escalations when
+a safe fix does not exist, with near-zero human time per ticket.
 
 Built against a fork of [apache/superset](https://github.com/apache/superset):
 [SeoKaEun/devin_takehome_assignment](https://github.com/SeoKaEun/devin_takehome_assignment)
