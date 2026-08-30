@@ -18,7 +18,7 @@ Scanners (Dependabot, Snyk, OSV) already *find* vulnerable dependencies.
 The backlog rots at the *processing* step, because three ticket types resist
 automation:
 
-| Ticket type | Why it rots | Example in this repo |
+| Ticket type | waiting reason | Example in this repo |
 |---|---|---|
 | Major-version upgrade with breaking changes | bumping the pin breaks CI; nobody volunteers | flask 2.3.3 -> 3.1.3 ([#1](https://github.com/SeoKaEun/devin_takehome_assignment/issues/1)) |
 | Advisory with **no fixed release** | requires investigation, not a bump | paramiko PYSEC-2026-2858 ([#3](https://github.com/SeoKaEun/devin_takehome_assignment/issues/3)) |
