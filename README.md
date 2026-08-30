@@ -15,19 +15,34 @@ Built against a fork of [apache/superset](https://github.com/apache/superset):
 
 ## The problem
 
-Scanners such as Dependabot, Snyk, and OSV already *find* vulnerable
-dependencies. The backlog accumulates at the *processing* step, because three
-kinds of ticket resist automation:
+Every engineering organization carries a backlog of remediation work that is
+known, understood, and not being done: dependencies with published
+advisories, defects that a careful reading of the code would reveal, and
+deprecated code that everyone agrees should be replaced. Detection is not the
+bottleneck. Scanners such as Dependabot, Snyk, and OSV find vulnerable
+dependencies continuously, and code review or audit surfaces the rest. The
+bottleneck is remediation: each item requires an engineer to reproduce the
+problem, change code, chase whatever the change breaks, run the tests, and
+open a reviewable pull request. That is between half a day and several days
+of skilled time per ticket, and it competes with feature work for the same
+people. The predictable result is that these tickets stay open for weeks or
+months.
+
+This matters for two reasons. A known vulnerability that stays open is
+exposure the organization has chosen to keep, usually without anyone having
+made that choice explicitly. And the backlog does not merely persist; it
+compounds, because every unapplied upgrade widens the gap to the next one.
+
+The pipeline described here changes the marginal cost of a remediation ticket
+from engineer-hours to a small number of ACUs, and does so without trusting
+the agent's own account of its work. It is built for the three kinds of ticket
+that resist rule-based automation in particular:
 
 | Ticket type | Why it stays open | Example in this repository |
 |---|---|---|
 | Major-version upgrade with breaking changes | Bumping the pin breaks CI and nobody volunteers to chase the breakage | flask 2.3.3 -> 3.1.3 ([#1](https://github.com/SeoKaEun/devin_takehome_assignment/issues/1)) |
 | Advisory with **no fixed release** | Requires investigation and a judgment, not a version bump | paramiko PYSEC-2026-2858 ([#3](https://github.com/SeoKaEun/devin_takehome_assignment/issues/3)) |
 | Non-security tech debt | Always loses prioritization against feature work | react-loadable -> React.lazy ([#4](https://github.com/SeoKaEun/devin_takehome_assignment/issues/4)) |
-
-Each of these costs an engineer between half a day and several days. This
-pipeline changes the marginal cost of a ticket from engineer-hours to a few
-ACUs, and it does so without trusting the agent's own account of its work.
 
 ## Architecture
 
