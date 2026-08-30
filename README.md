@@ -133,7 +133,11 @@ it), and **unexplained state** (timeouts, schema violations, contradictions -
 once the system cannot prove what is happening, acting automatically means
 acting on unknown state, so it stops loudly instead).
 
-## Results (all real, verifiable on the fork)
+## Results
+
+Every outcome below links to the corresponding issue or pull request on the
+fork; the timelines, session links and review verdicts are recorded there as
+issue comments.
 
 **First run - the seeded backlog.**
 
@@ -144,12 +148,13 @@ acting on unknown state, so it stops loudly instead).
 | [#1 flask 2.3.3 -> 3.1.3](https://github.com/SeoKaEun/devin_takehome_assignment/issues/1) | **fixed** ([PR #9](https://github.com/SeoKaEun/devin_takehome_assignment/pull/9)) | Major-version upgrade. Devin found the one true breaking dependency (flask-babel 3.1.0 imports a helper Flask 3 removed, via the flask-appbuilder chain), bumped it to 4.0.0, and proved no application-code changes were needed: `pytest tests/unit_tests` identical to the master baseline (13,328 passed). The review rejected the first attempt, it was routed back, then approved: "does exactly what issue #1 requires and nothing more - 3 files, +8/-5." |
 | [#4 react-loadable -> React.lazy](https://github.com/SeoKaEun/devin_takehome_assignment/issues/4) | **fixed** ([PR #8](https://github.com/SeoKaEun/devin_takehome_assignment/pull/8)) | Multi-file frontend refactor, review-approved on the first pass. |
 
-Tally: 4/4 issues terminal - 3 verified PRs and 1 evidence-backed
-escalation. 9 Devin sessions (4 work, 5 review). 2 defective fixes caught by
-independent review before any human saw them. Average detection-to-resolution
-about 50 minutes of wall-clock time. Human involvement: 4 logged decisions
-(one timeout extension, scope-policy widenings, one calibration judgment) and
-the merge button. No code was written or reviewed by a human.
+Summary: 4 of 4 issues reached a terminal state - 3 verified pull requests
+and 1 evidence-backed escalation. 9 Devin sessions were used (4 work,
+5 review). 2 defective fixes were caught by independent review before any
+human saw them. Average time from detection to resolution was approximately
+50 minutes. Human involvement was limited to 4 logged decisions (one timeout
+extension, scope-policy widenings, one calibration judgment) and the merge
+itself; no code was written or reviewed by a human.
 
 **Automated sources.** The code audit filed
 [#10](https://github.com/SeoKaEun/devin_takehome_assignment/issues/10) and
@@ -166,7 +171,7 @@ Each was picked up by the pipeline and carried to a pull request
 dispatch; #18 and #20 passed both gates and independent review within
 50 minutes of being filed.
 
-## Why Devin, and not a rules bot
+## Why an autonomous agent
 
 Dependabot's three structural limits are exactly issues #1, #3 and #4: it
 cannot fix the code its own version bump breaks, it does nothing when no fixed
@@ -176,9 +181,9 @@ autonomous agent. Here that agent is used as a programmable primitive in four
 roles - auditor, implementer, independent reviewer, and investigator - under
 the same separation of duties applied between human engineers.
 
-## Run it
+## Running the pipeline
 
-### Simulate (no credentials, no network, about 30 seconds)
+### Simulation (no credentials, no network, about 30 seconds)
 
 Exercises every state transition - dispatch, gates, independent review,
 rework, escalation, nudge - against scripted fixtures modeled on the real
@@ -232,10 +237,12 @@ suspicion-lane invariants (a `fixed` claim with no PR, a nonexistent PR, a
 the three brakes (pause, ACU budget, circuit breaker - each must stop new
 sessions, let running ones finish, and be resumable).
 
-## Observability - "how would I know this is working?"
+## Observability
 
-Everything below is derived from `state/state.json`, the pipeline's own
-records. Nothing is estimated and nothing comes from the agent's self-report.
+The question an engineering leader needs answered is whether the system is
+working. Everything below is derived from `state/state.json`, the pipeline's
+own records; nothing is estimated and nothing comes from the agent's
+self-report.
 
 | Question | Where to look |
 |---|---|
@@ -265,11 +272,11 @@ scripts/
 tests/             unittest suite (stdlib-only, offline, about one second)
 ```
 
-Two hard guards are worth knowing about: `.github/` is on a global denylist -
-no session may touch CI workflows in any autonomy mode, because workflow
-edits are a privilege-escalation surface; and issues without a hand-written
-scope spec get a bounded default (manifests, source, docs, tests), never
-"anything goes".
+Two hard guards apply regardless of configuration: `.github/` is on a global
+denylist, so no session may touch CI workflows in any autonomy mode (workflow
+edits are a privilege-escalation surface); and issues without a hand-written
+scope specification receive a bounded default (manifests, source, docs,
+tests) rather than unrestricted access.
 
 ## Production notes (what changes in a real engagement)
 
