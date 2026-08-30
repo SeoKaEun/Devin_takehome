@@ -190,6 +190,19 @@ approves), the idle-session nudge, the concurrency cap on every tick, and
 the suspicion-lane invariants (a `fixed` claim with no PR, a nonexistent PR,
 a `blocked` claim without evidence - each must stop the pipeline, loudly).
 
+## Observability - "how would I know this is working?"
+
+Everything below is derived from `state/state.json`, the pipeline's own
+records. Nothing is estimated and nothing comes from the agent's self-report.
+
+| Question | Where to look |
+|---|---|
+| What is active, what is done? | `state/dashboard.html` tiles: **Fixed, PR verified** / **Escalated with evidence** / **Needs attention** / **In progress**; the Issues table (state, PR, duration); a per-issue timeline of every transition |
+| Is it succeeding or failing? | **Quality & control** panel: review rejections caught, autonomous rework rounds vs. the bound, human decisions logged. Failures never go silent: anything unprovable lands in **Needs attention** (red) with a comment saying what happened and what to check |
+| Is it moving, and what does it cost? | **Operations** panel: last tick, last scan (+issues filed), pipeline errors, concurrent sessions vs. cap, ACU ceiling; **Avg resolution** tile; `n/m resolved` in the header. The page refreshes every 15 s and shows a **Stale** banner if the loop has been silent for 3 min |
+| What did the agent actually do? | Each issue's **Problem -> Fix -> Result** block, the raw agent log (expandable), and links to the work and review sessions on app.devin.ai |
+| Without a browser? | `python -m orchestrator status` (one line per issue), `state/orchestrator.log` (every tick), and the comment trail the pipeline leaves on each GitHub issue (session started, fix verified, review verdict, escalation report) |
+
 ## Repository layout
 
 ```
