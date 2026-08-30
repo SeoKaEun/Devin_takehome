@@ -11,6 +11,20 @@ Built against a fork of [apache/superset](https://github.com/apache/superset):
 [SeoKaEun/devin_takehome_assignment](https://github.com/SeoKaEun/devin_takehome_assignment)
 (148 pinned Python dependencies, 267 frontend dependencies).
 
+**Contents:**
+[The problem](#the-problem) ·
+[Architecture](#architecture) ·
+[How findings are detected](#how-findings-are-detected) ·
+[From finding to verified pull request](#from-finding-to-verified-pull-request) ·
+[Configuration](#configuration) ·
+[Autonomy modes](#autonomy-modes) ·
+[Results](#results) ·
+[Why an autonomous agent](#why-an-autonomous-agent) ·
+[Getting started](#getting-started) ·
+[Observability](#observability) ·
+[Project structure](#project-structure) ·
+[Roadmap](#roadmap)
+
 ---
 
 ## The problem
@@ -98,11 +112,96 @@ Design rules, and why:
   human decides. Every session carries `tags` (audit), `max_acu_limit`
   (cost ceiling), and `idempotent` (a retried dispatch can never double-fire).
 
-## Detection is complete; spending is governed downstream
+## How findings are detected
 
-The scanner files **every** finding it can attribute to a pinned version, so
-the issue tracker is a complete record of the known backlog. What actually
-runs is decided by the dispatcher, which is where every cost control lives:
+Three sources feed the same queue. Each one produces a GitHub issue whose
+body is the task contract; nothing downstream needs to know where an issue
+came from.
+
+### Dependency scanner (deterministic)
+
+- Reads the manifests listed in `SCAN_MANIFESTS` (default
+  `requirements/base.txt`; add `requirements/development.txt` to widen
+  coverage) from the fork's default branch.
+- Parses exact pins only (`name==version`). Loose specifiers are ignored by
+  design: the scanner reports what is actually installed, not what might be.
+- Sends all pins to OSV in a single `querybatch` call (PyPI ecosystem) and
+  receives the advisories that apply to each exact package/version pair.
+- Checks every advisory ID against the titles of all open and closed issues on
+  the fork, so an advisory is filed once and never again.
+- Files each new finding as
+  `[security] <package> <version> vulnerable (<advisory>) - auto-detected`,
+  labeled for pickup. If OSV lists a fixed version, the body is an **upgrade
+  contract** (bump the pin to the fixed release, fix the fallout, prove it
+  with `pip install`, an import check and the relevant tests, open a PR with
+  the required title). If no fixed version exists, the body is an
+  **investigation contract** (assess exposure, propose a mitigation, define a
+  revisit trigger; a well-evidenced "cannot be fixed safely today" report is
+  the successful outcome).
+- Runs on startup and every `SCAN_INTERVAL_MIN` minutes inside
+  `orchestrator run`, or on demand with `orchestrator scan`.
+
+Examples on the fork: issues
+[#12](https://github.com/SeoKaEun/devin_takehome_assignment/issues/12),
+[#16](https://github.com/SeoKaEun/devin_takehome_assignment/issues/16),
+[#18](https://github.com/SeoKaEun/devin_takehome_assignment/issues/18),
+[#19](https://github.com/SeoKaEun/devin_takehome_assignment/issues/19),
+[#20](https://github.com/SeoKaEun/devin_takehome_assignment/issues/20).
+
+### Code audit (judgment-based)
+
+- `orchestrator audit` starts a Devin session in the **auditor** role with a
+  scope (`AUDIT_SCOPE`, default `superset/utils/` for Python code-level
+  defects) and a fixed set of defect categories. The session is report-only
+  and capped at half the normal ACU ceiling.
+- The session must answer through `AUDIT_SCHEMA`: every finding requires the
+  file, the exact pattern as evidence, and a statement of why it matters.
+  Findings without evidence are dropped before filing.
+- The orchestrator files each finding as
+  `[code-quality] <title> (<file>) - auto-detected`, de-duplicated against
+  existing issues by file and title, with the same contract structure as
+  scanner findings.
+
+Examples on the fork: issues
+[#10](https://github.com/SeoKaEun/devin_takehome_assignment/issues/10)
+(`excel.py`) and
+[#11](https://github.com/SeoKaEun/devin_takehome_assignment/issues/11)
+(`json.py`), both subsequently fixed by the pipeline.
+
+### Human label (opt-in)
+
+Any issue that carries the trigger label (`TRIGGER_LABEL`, default
+`devin-remediate`) is picked up on the next tick. This is how tech-debt work
+such as [#4](https://github.com/SeoKaEun/devin_takehome_assignment/issues/4)
+enters the same pipeline as security findings.
+
+## From finding to verified pull request
+
+Every 30 seconds (`POLL_INTERVAL_SEC`) the orchestrator runs one tick over
+every tracked issue. The states are a closed set; anything that cannot be
+proven to be in a healthy state goes to `needs_attention`.
+
+| Step | What happens | Resulting state |
+|---|---|---|
+| Watch | Issues with the trigger label that are not yet tracked are recorded | `queued` |
+| Brakes | Pause file, ACU budget and circuit breaker are evaluated once for the tick | - |
+| Dispatch | While fewer than `MAX_CONCURRENT_SESSIONS` are live, the next queued issue gets a Devin **work** session bound to its contract, with an ACU ceiling and an idempotency key | `working` |
+| Monitor | The session is polled; an idle session is nudged once, a session past `SESSION_TIMEOUT_MIN` is escalated | `working` |
+| Gate 1 (mechanical) | The typed result is checked against the contract: the PR exists on the fork, the diff stays inside the allowed paths, test evidence is present. A `blocked` result must carry a reason and a mitigation | `review_pending` / `done_escalated` / `needs_attention` |
+| Gate 2 (independent) | A **separate** Devin session reviews the diff against the contract and returns `approve` or `request_changes` with findings | `review_working` |
+| Rework | Findings are sent back to the original work session for one bounded round, then Gate 1 and Gate 2 run again | `working` |
+| Report | The outcome is posted to the issue as a comment, `state.json` is updated, the dashboard is regenerated | `done_fixed` / `done_escalated` / `needs_attention` |
+
+Merging a review-approved PR remains a human action except in `autopilot`
+mode.
+
+## Configuration
+
+All settings are environment variables, read from `.env` if present
+(`.env.example` lists every one with its default). The ones that govern cost
+are below; the scanner files every finding it can attribute to a pinned
+version, so spending is decided here, at dispatch time, rather than by
+limiting what gets detected.
 
 | Control | Default | Effect |
 |---|---|---|
@@ -196,7 +295,7 @@ autonomous agent. Here that agent is used as a programmable primitive in four
 roles - auditor, implementer, independent reviewer, and investigator - under
 the same separation of duties applied between human engineers.
 
-## Running the pipeline
+## Getting started
 
 ### Simulation (no credentials, no network, about 30 seconds)
 
@@ -267,7 +366,7 @@ self-report.
 | What did the agent actually do? | Each issue's **Problem -> Fix -> Result** block, the raw agent log (expandable), and links to the work and review sessions on app.devin.ai |
 | Without a browser? | `python -m orchestrator status` (one line per issue), `state/orchestrator.log` (every tick and every brake change), and the comment trail the pipeline leaves on each GitHub issue (session started, fix verified, review verdict, escalation report) |
 
-## Repository layout
+## Project structure
 
 ```
 orchestrator/
@@ -293,7 +392,7 @@ edits are a privilege-escalation surface); and issues without a hand-written
 scope specification receive a bounded default (manifests, source, docs,
 tests) rather than unrestricted access.
 
-## Production notes (what changes in a real engagement)
+## Roadmap
 
 - **Prioritization.** Detection is already complete and spend is already
   bounded; what is missing is ordering. A triage step between detection and
